@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import {
   FiPlusCircle,
@@ -11,6 +11,16 @@ import {
 const baseUrl = "https://shak-multas-99076cfe6de7.herokuapp.com";
 
 export default function Home() {
+  // New authentication state
+  const [token, setToken] = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [registerEmail, setRegisterEmail] = useState("");
+  const [registerPassword, setRegisterPassword] = useState("");
+  const [registerError, setRegisterError] = useState("");
+
   // Estado para crear multa
   const [nuevaMulta, setNuevaMulta] = useState({
     id: "",
@@ -39,12 +49,66 @@ export default function Home() {
   });
   const [modalError, setModalError] = useState("");
 
+  // On mount, load token from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem("token");
+    if (saved) setToken(saved);
+  }, []);
+
   // Handlers
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${baseUrl}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+      });
+      const data = await res.json();
+      if (data.token) {
+        localStorage.setItem("token", data.token);
+        setToken(data.token);
+        setLoginError("");
+      } else {
+        setLoginError(data.message || "Error al iniciar sesión");
+      }
+    } catch (err) {
+      setLoginError(err.message);
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${baseUrl}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: registerEmail,
+          password: registerPassword,
+        }),
+      });
+      const data = await res.json();
+      if (data.token) {
+        localStorage.setItem("token", data.token);
+        setToken(data.token);
+        setRegisterError("");
+      } else {
+        setRegisterError(data.message || "Error al registrar usuario");
+      }
+    } catch (err) {
+      setRegisterError(err.message);
+    }
+  };
+
   const handleCrear = async (e) => {
     e.preventDefault();
     const res = await fetch(`${baseUrl}/multas`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
         id: nuevaMulta.id,
         valor: Number(nuevaMulta.valor),
@@ -122,7 +186,10 @@ export default function Home() {
     try {
       const res = await fetch(`${baseUrl}/multas/pagar`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(body),
       });
       const data = await res.json();
@@ -143,7 +210,9 @@ export default function Home() {
     e.preventDefault();
     setErrorBuscar(null);
     try {
-      const res = await fetch(`${baseUrl}/multas/${identifier}`);
+      const res = await fetch(`${baseUrl}/multas/${identifier}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!res.ok) throw new Error("Error en la petición");
       const data = await res.json();
       setMultasEncontradas(data);
@@ -151,6 +220,95 @@ export default function Home() {
       setErrorBuscar(err.message);
     }
   };
+
+  // Render login or register form if not authenticated
+  if (!token) {
+    return (
+      <main className="flex items-center justify-center min-h-screen bg-gray-100">
+        <div className="bg-white p-8 rounded shadow-md w-full max-w-md">
+          {isRegistering ? (
+            <>
+              <h2 className="text-2xl mb-4 text-[#c10230]">Registrarse</h2>
+              {registerError && (
+                <p className="text-red-600 mb-2">{registerError}</p>
+              )}
+              <form onSubmit={handleRegister} className="space-y-4">
+                <input
+                  type="email"
+                  placeholder="correo@ejemplo.com"
+                  value={registerEmail}
+                  onChange={(e) => setRegisterEmail(e.target.value)}
+                  required
+                  className="w-full p-3 border border-gray-300 rounded focus:ring-[#c10230]"
+                />
+                <input
+                  type="password"
+                  placeholder="Contraseña"
+                  value={registerPassword}
+                  onChange={(e) => setRegisterPassword(e.target.value)}
+                  required
+                  className="w-full p-3 border border-gray-300 rounded focus:ring-[#c10230]"
+                />
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-[#c10230] text-white rounded hover:bg-[#a80129] transition"
+                >
+                  Registrar
+                </button>
+              </form>
+              <p className="mt-4 text-sm text-center">
+                ¿Ya tienes cuenta?{" "}
+                <button
+                  onClick={() => setIsRegistering(false)}
+                  className="text-[#c10230]"
+                >
+                  Iniciar Sesión
+                </button>
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 className="text-2xl mb-4 text-[#c10230]">Iniciar Sesión</h2>
+              {loginError && <p className="text-red-600 mb-2">{loginError}</p>}
+              <form onSubmit={handleLogin} className="space-y-4">
+                <input
+                  type="email"
+                  placeholder="correo@ejemplo.com"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  required
+                  className="w-full p-3 border border-gray-300 rounded focus:ring-[#c10230]"
+                />
+                <input
+                  type="password"
+                  placeholder="Contraseña"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  required
+                  className="w-full p-3 border border-gray-300 rounded focus:ring-[#c10230]"
+                />
+                <button
+                  type="submit"
+                  className="w-full py-3 bg-[#c10230] text-white rounded hover:bg-[#a80129] transition"
+                >
+                  Login
+                </button>
+              </form>
+              <p className="mt-4 text-sm text-center">
+                ¿No tienes cuenta?{" "}
+                <button
+                  onClick={() => setIsRegistering(true)}
+                  className="text-[#c10230]"
+                >
+                  Regístrate
+                </button>
+              </p>
+            </>
+          )}
+        </div>
+      </main>
+    );
+  }
 
   return (
     <div className="flex min-h-screen">
