@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Image from "next/image";
 import {
   FiPlusCircle,
@@ -7,19 +7,12 @@ import {
   FiSearch,
   FiBarChart2,
 } from "react-icons/fi";
+import { useAuth } from "./hooks/useAuth";
 
 const baseUrl = "https://shak-multas-99076cfe6de7.herokuapp.com";
 
 export default function Home() {
-  // New authentication state
-  const [token, setToken] = useState("");
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [loginError, setLoginError] = useState("");
-  const [isRegistering, setIsRegistering] = useState(false);
-  const [registerEmail, setRegisterEmail] = useState("");
-  const [registerPassword, setRegisterPassword] = useState("");
-  const [registerError, setRegisterError] = useState("");
+  const { session, status, isAuthenticated, signIn, signOut } = useAuth();
 
   // Estado para crear multa
   const [nuevaMulta, setNuevaMulta] = useState({
@@ -49,80 +42,10 @@ export default function Home() {
   });
   const [modalError, setModalError] = useState("");
 
-  // On mount, load token from localStorage
-  useEffect(() => {
-    const saved = localStorage.getItem("token");
-    if (saved) setToken(saved);
-  }, []);
-
-  // Handlers
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch(`${baseUrl}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
-      });
-      const data = await res.json();
-      if (data.token) {
-        localStorage.setItem("token", data.token);
-        setToken(data.token);
-        setLoginError("");
-      } else {
-        setLoginError(data.message || "Error al iniciar sesión");
-      }
-    } catch (err) {
-      setLoginError(err.message);
-    }
-  };
-
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch(`${baseUrl}/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: registerEmail,
-          password: registerPassword,
-        }),
-      });
-      const data = await res.json();
-      if (data.token) {
-        localStorage.setItem("token", data.token);
-        setToken(data.token);
-        setRegisterError("");
-      } else {
-        setRegisterError(data.message || "Error al registrar usuario");
-      }
-    } catch (err) {
-      setRegisterError(err.message);
-    }
-  };
-
-  const handleCrear = async (e) => {
-    e.preventDefault();
-    const res = await fetch(`${baseUrl}/multas`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        id: nuevaMulta.id,
-        valor: Number(nuevaMulta.valor),
-        descripcion: nuevaMulta.descripcion,
-      }),
-    });
-    const data = await res.json();
-    setResultadoCrear(data.mensaje || JSON.stringify(data));
-  };
-
   const openModal = (m) => {
     setSelectedMulta(m);
     setModalPago({
-      customer_email: "",
+      customer_email: session?.user?.email || "",
       card_type: "",
       card_holder_name: "",
       card_number: "",
@@ -156,8 +79,8 @@ export default function Home() {
       return;
     }
     if (
-      !/^[0-9]{1,2}$/.test(modalPago.expiryMonth) || // sigue validando 1 o 2 dígitos para el mes
-      !/^[0-9]{4}$/.test(modalPago.expiryYear) // ahora valida 4 dígitos para el año
+      !/^[0-9]{1,2}$/.test(modalPago.expiryMonth) ||
+      !/^[0-9]{4}$/.test(modalPago.expiryYear)
     ) {
       setModalError("Fecha de expiración inválida");
       return;
@@ -166,6 +89,7 @@ export default function Home() {
       setModalError("CVV inválido");
       return;
     }
+
     // Build payment body
     const body = {
       multaId: selectedMulta.id,
@@ -183,12 +107,13 @@ export default function Home() {
         currency: modalPago.currency,
       },
     };
+
     try {
       const res = await fetch(`${baseUrl}/multas/pagar`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${session.accessToken}`,
         },
         body: JSON.stringify(body),
       });
@@ -211,7 +136,7 @@ export default function Home() {
     setErrorBuscar(null);
     try {
       const res = await fetch(`${baseUrl}/multas/${identifier}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${session.accessToken}` },
       });
       if (!res.ok) throw new Error("Error en la petición");
       const data = await res.json();
@@ -221,90 +146,51 @@ export default function Home() {
     }
   };
 
-  // Render login or register form if not authenticated
-  if (!token) {
+  const handleCrear = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${baseUrl}/multas`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+        },
+        body: JSON.stringify({
+          id: nuevaMulta.id,
+          valor: Number(nuevaMulta.valor),
+          descripcion: nuevaMulta.descripcion,
+        }),
+      });
+      const data = await res.json();
+      setResultadoCrear(data.mensaje || JSON.stringify(data));
+    } catch (err) {
+      setResultadoCrear(err.message);
+    }
+  };
+
+  // Show loading state
+  if (status === "loading") {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-100">
+        <div className="text-2xl text-gray-600">Cargando...</div>
+      </div>
+    );
+  }
+
+  // Render login button if not authenticated
+  if (!isAuthenticated) {
     return (
       <main className="flex items-center justify-center min-h-screen bg-gray-100">
         <div className="bg-white p-8 rounded shadow-md w-full max-w-md">
-          {isRegistering ? (
-            <>
-              <h2 className="text-2xl mb-4 text-[#c10230]">Registrarse</h2>
-              {registerError && (
-                <p className="text-red-600 mb-2">{registerError}</p>
-              )}
-              <form onSubmit={handleRegister} className="space-y-4">
-                <input
-                  type="email"
-                  placeholder="correo@ejemplo.com"
-                  value={registerEmail}
-                  onChange={(e) => setRegisterEmail(e.target.value)}
-                  required
-                  className="w-full p-3 border border-gray-300 rounded focus:ring-[#c10230]"
-                />
-                <input
-                  type="password"
-                  placeholder="Contraseña"
-                  value={registerPassword}
-                  onChange={(e) => setRegisterPassword(e.target.value)}
-                  required
-                  className="w-full p-3 border border-gray-300 rounded focus:ring-[#c10230]"
-                />
-                <button
-                  type="submit"
-                  className="w-full py-3 bg-[#c10230] text-white rounded hover:bg-[#a80129] transition"
-                >
-                  Registrar
-                </button>
-              </form>
-              <p className="mt-4 text-sm text-center">
-                ¿Ya tienes cuenta?{" "}
-                <button
-                  onClick={() => setIsRegistering(false)}
-                  className="text-[#c10230]"
-                >
-                  Iniciar Sesión
-                </button>
-              </p>
-            </>
-          ) : (
-            <>
-              <h2 className="text-2xl mb-4 text-[#c10230]">Iniciar Sesión</h2>
-              {loginError && <p className="text-red-600 mb-2">{loginError}</p>}
-              <form onSubmit={handleLogin} className="space-y-4">
-                <input
-                  type="email"
-                  placeholder="correo@ejemplo.com"
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  required
-                  className="w-full p-3 border border-gray-300 rounded focus:ring-[#c10230]"
-                />
-                <input
-                  type="password"
-                  placeholder="Contraseña"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  required
-                  className="w-full p-3 border border-gray-300 rounded focus:ring-[#c10230]"
-                />
-                <button
-                  type="submit"
-                  className="w-full py-3 bg-[#c10230] text-white rounded hover:bg-[#a80129] transition"
-                >
-                  Login
-                </button>
-              </form>
-              <p className="mt-4 text-sm text-center">
-                ¿No tienes cuenta?{" "}
-                <button
-                  onClick={() => setIsRegistering(true)}
-                  className="text-[#c10230]"
-                >
-                  Regístrate
-                </button>
-              </p>
-            </>
-          )}
+          <h2 className="text-2xl mb-4 text-[#c10230]">
+            Bienvenido a Shak Multas
+          </h2>
+          <button
+            onClick={() => signIn()}
+            className="w-full py-3 bg-[#c10230] text-white rounded hover:bg-[#a80129] transition"
+          >
+            Iniciar Sesión
+          </button>
         </div>
       </main>
     );
@@ -328,14 +214,28 @@ export default function Home() {
           <button className="flex items-center p-2 rounded hover:bg-[#a80129] transition">
             <FiSearch className="mr-3" /> Buscar Multas
           </button>
+          <button
+            onClick={() => signOut()}
+            className="flex items-center p-2 rounded hover:bg-[#a80129] transition mt-auto"
+          >
+            Cerrar Sesión
+          </button>
         </nav>
       </aside>
+
       {/* Main Content */}
       <main className="flex-1 bg-gray-100 p-8">
         {/* Header móvil */}
         <header className="flex lg:hidden items-center justify-between mb-6 bg-[#c10230] p-4 rounded text-white">
           <h1 className="text-xl font-semibold">Shak Multas Dashboard</h1>
+          <button
+            onClick={() => signOut()}
+            className="py-2 px-4 bg-[#a80129] rounded hover:bg-[#8f0123] transition"
+          >
+            Cerrar Sesión
+          </button>
         </header>
+
         <div className="grid gap-8 lg:grid-cols-2">
           {/* Card Crear Multa */}
           <div className="bg-white p-6 rounded-lg shadow-lg">
@@ -350,37 +250,49 @@ export default function Home() {
                 onChange={(e) =>
                   setNuevaMulta({ ...nuevaMulta, id: e.target.value })
                 }
+                required
                 className="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-[#c10230]"
               />
               <input
-                placeholder="Valor"
                 type="number"
+                placeholder="Valor"
                 value={nuevaMulta.valor}
                 onChange={(e) =>
                   setNuevaMulta({ ...nuevaMulta, valor: e.target.value })
                 }
+                required
                 className="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-[#c10230]"
               />
-              <input
+              <textarea
                 placeholder="Descripción"
                 value={nuevaMulta.descripcion}
                 onChange={(e) =>
                   setNuevaMulta({ ...nuevaMulta, descripcion: e.target.value })
                 }
+                required
                 className="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-[#c10230]"
               />
               <button
                 type="submit"
                 className="w-full py-3 bg-[#c10230] text-white rounded hover:bg-[#a80129] transition"
               >
-                Crear Multa
+                Crear
               </button>
             </form>
             {resultadoCrear && (
-              <p className="mt-4 text-green-600">{resultadoCrear}</p>
+              <p
+                className={`mt-4 ${
+                  resultadoCrear.includes("Error")
+                    ? "text-red-600"
+                    : "text-green-600"
+                }`}
+              >
+                {resultadoCrear}
+              </p>
             )}
           </div>
-          {/* Card Buscar Multas */}
+
+          {/* Card Buscar Multa */}
           <div className="bg-white p-6 rounded-lg shadow-lg">
             <div className="flex items-center mb-4 text-[#c10230]">
               <FiSearch size={28} className="mr-2" />
@@ -388,9 +300,10 @@ export default function Home() {
             </div>
             <form onSubmit={handleBuscar} className="space-y-4">
               <input
-                placeholder="Identificador"
+                placeholder="Buscar por ID"
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
+                required
                 className="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-[#c10230]"
               />
               <button
@@ -441,6 +354,7 @@ export default function Home() {
             )}
           </div>
         </div>
+
         {/* Modal de Pago */}
         {showModal && (
           <div className="fixed inset-0 backdrop-blur-md bg-transparent flex items-center justify-center z-50">
